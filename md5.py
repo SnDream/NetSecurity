@@ -22,7 +22,7 @@
 #
 #
 
-# 限于python特性，无法实现加溢出，计算加法后需要适时计算模32弥补
+# 限于python特性，无法实现加溢出，计算加法后需要适时计算模32来手动截断
 # 模32改用与实现时的参数，专门命名简短程序长度
 M32 = 0xFFFFFFFF
 # IV表
@@ -69,9 +69,11 @@ def main(args):
 # 输入：N个文件名
 # 输出：每个文件名对应文件的md5值
 # 输出格式模仿md5sum，但没有实现其读取标准流的功能
-# 限于python特性（无法做加法溢出，需要执行额外指令弥补）效率也相当低
+# 限于Python特性（无法做加法溢出，需要手动截断）效率也相当低
 # 虽然考虑了大文件读入的问题，但是大文件的计算本身效率很差
-    if len(args) == 1:
+# 因此以按本程序结构，重写C语言版本
+# 计算400MB数据：md5sum用时2.8s md5.c用时6.0s md5.py用时9m17s
+    if len(args) == 1:  # 当没有传入文件参数时，直接提示用法并返回
         print('Usage: md5.py [FILE]...')
         print('Print MD5 (128-bit) checksums.')
         return -1
@@ -81,13 +83,15 @@ def main(args):
             filesize = 0
             with open(filename, 'rb') as rawdata:
                 chunk = rawdata.read(64)
-                while len(chunk) == 64:
+                while len(chunk) == 64:  # 非末尾文件块，循环处理
                     ABCD = HMD5(ABCD, chunk)
                     filesize += 64
                     chunk = rawdata.read(64)
+                # 到这里为止计算的文件大小实际上是Byte大小，md5按Bit大小记录，需要重算
                 filesize = ((filesize + len(chunk)) << 3) & ((1 << 64) - 1)
+                # 已处理到末尾文件块，生成其余部分
                 chunk += b'\x80'
-                if len(chunk) >= 56:
+                if len(chunk) > 56:  # 当其余部分不足以放下文件长度时，需要再生成一个一块
                     chunk += bytes([0] * (64 - len(chunk)))
                     ABCD = HMD5(ABCD, chunk)
                     chunk = bytes([0] * 56)
@@ -117,15 +121,9 @@ def HMD5(ABCD, chunk):
         X.append(
             int.from_bytes(chunk[i:i + 4], byteorder='little', signed=False))
     for i in range(0, 64):
-        A, B, C, D = D, MA(A, B, C, D, i, X[XNO_TABLE[i]]), B, C
+        A, B, C, D = D, (
+            rol((A + FGHI(B, C, D, i) + X[XNO_TABLE[i]] + T_TABLE[i]) & M32, S_TABLE[i]) + B) & M32, B, C
     return [(A + ABCD[0]) & M32, (B + ABCD[1]) & M32, (C + ABCD[2]) & M32, (D + ABCD[3]) & M32]
-
-
-def MA(A, B, C, D, i, X):
-# A的计算函数
-# 输入：A B C D 轮次 本次计算的文件段(32位)
-# 输出：本轮A的计算结果
-    return (rol((A + FGHI(B, C, D, i) + X + T_TABLE[i]) & M32, S_TABLE[i]) + B) & M32
 
 
 def FGHI(B, C, D, i):
