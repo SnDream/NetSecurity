@@ -4,5 +4,5 @@
 
 NetSecurity work
 
-- MD5 (Python and C)
-- DES (Python)
+- MD5 (Python3 and C)
+- DES (Python3)
